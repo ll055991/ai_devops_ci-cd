@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -222,6 +223,26 @@ def build_default_checkpointer() -> AsyncSqliteSaver:
     return AsyncSqliteSaver(aiosqlite.connect(str(db_path)))
 
 
+def _setup_langsmith_tracing(settings: Settings) -> None:
+    """把 .env 的 LangSmith 配置桥接进进程环境变量。
+
+    LangChain 的 tracing 只认 os.environ（LANGSMITH_TRACING / LANGSMITH_API_KEY），
+    pydantic-settings 只把 .env 装进 Settings 对象、不写环境变量，
+    必须在此显式导出，Agent 运行才会自动上报 trace 到 LangSmith。
+    开关默认关：单测注入的 Settings 不含 LANGSMITH_TRACING，不会误上报。
+    """
+    if not settings.langsmith_tracing or settings.langsmith_api_key is None:
+        return
+    os.environ["LANGSMITH_TRACING"] = "true"
+    os.environ["LANGSMITH_API_KEY"] = settings.langsmith_api_key.get_secret_value()
+    if settings.langsmith_project:
+        os.environ["LANGSMITH_PROJECT"] = settings.langsmith_project
+    logger.info(
+        "LANGSMITH | tracing=enabled | project={}",
+        settings.langsmith_project,
+    )
+
+
 def create_deploy_agent(
     settings: Settings | None = None,
     checkpointer: Any | None = None,
@@ -245,6 +266,8 @@ def create_deploy_agent(
         deepagents 编译后的 Agent
     """
     resolved_settings = settings or get_settings()
+    # 桥接必须发生在首次 LLM 调用前（Agent 单例创建时执行一次）
+    _setup_langsmith_tracing(resolved_settings)
     resolved_checkpointer = (
         checkpointer if checkpointer is not None else build_default_checkpointer()
     )

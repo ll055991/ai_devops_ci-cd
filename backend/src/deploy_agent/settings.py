@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     openai_model: str = Field(default="gpt-4o-mini", validation_alias="OPENAI_MODEL")
     openai_temperature: float = Field(default=0.0, validation_alias="OPENAI_TEMPERATURE")
     model_max_tokens: int = Field(default=8192, validation_alias="MODEL_MAX_TOKENS")
+    langsmith_api_key: SecretStr | None = Field(default=None, validation_alias="LANGSMITH_API_KEY")
+    # tracing 总开关（.env LANGSMITH_TRACING=true 时开启上报）
+    # 默认关闭：单测注入的 Settings 不带此配置，避免测试运行污染 LangSmith 项目
+    langsmith_tracing: bool = Field(default=False, validation_alias="LANGSMITH_TRACING")
+    # 上报目标项目名（LangSmith UI 里按项目隔离 trace），空则用 LangSmith 默认项目
+    langsmith_project: str | None = Field(default=None, validation_alias="LANGSMITH_PROJECT")
 
     # --- 代码仓库 ---
     # 仓库地址和分支由用户在对话中指定，不做白名单校验

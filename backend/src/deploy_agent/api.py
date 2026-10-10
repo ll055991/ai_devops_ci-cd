@@ -543,7 +543,14 @@ async def agent_chat(req: ChatRequest) -> StreamingResponse:
 
     # thread_id 缺省生成（用时间戳，便于追踪）
     thread_id = req.thread_id or f"t-{int(time.time())}"
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {
+    "configurable": {"thread_id": thread_id},          # 保留：checkpointer 记忆依赖它
+    "metadata": {                                       # 新增：供 LangSmith 分类/筛选
+        "thread_id": thread_id,
+        "mode": "resume" if req.decisions else "new",
+    },
+    "tags": ["deploy-agent"],                            # 新增：给这次调用的 run 打标
+    }
     # 用量账本归属：请求任务上下文内写入，模型 callback（含子Agent 嵌套调用）读取
     set_usage_thread(thread_id)
 
