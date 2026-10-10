@@ -3,10 +3,13 @@
     "ontology-graph:ctc_jt_1.1.1",
     "ontology-graph",
     "ontology-graph1112",
-    "ontology-graph-0827-01"
+    "ontology-graph-0827-01",
+    "ontology/ontology-graph:v1.1.250",
+    "ontology-graph-v1.1.250"
   ],
   "image_prefixes": [
     "ontology-graph",
-    "ontology-graph1112"
+    "ontology-graph1112",
+    "ontology/ontology-graph"
   ]
 }

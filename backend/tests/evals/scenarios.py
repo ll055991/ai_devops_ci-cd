@@ -89,8 +89,11 @@ GATE_SCENARIOS: list[Scenario] = [
         required_tools=["git_pull_code", "build_docker_image", "stop_container"],
         decisions=[{"type": "reject", "message": "今晚不发布"}],
         expect={
-            "absent": ["stop_container", "start_container"],
+            # 审批拒绝后工具并未真正执行：改用 ssh_absent 判"没执行"。
+            # 不能沿用 absent——它读审计记录，而 rejected 那行会让它误判为"被调用"
+            "absent": ["start_container"],
             "audit": [("stop_container", "rejected")],
+            "ssh_absent": ["docker stop"],
         },
     ),
     Scenario(
