@@ -2142,6 +2142,157 @@ def build_check_server_environment_tool(settings: Settings):
     return check_server_environment
 
 
+def build_exec_remote_script_tool(settings: Settings):
+    """构建 exec_remote_script 工具（高危写操作，需人工审批）。
+
+    在目标服务器上执行一个白名单目录内的安装/编排脚本（bash <script>）。
+    与 docker/git 工具的区别：这是"部署编排"能力——把目标机上的分阶段安装脚本
+    （如 BaaS 离线包 scripts/）按 SOP 逐个执行，适配无法用现有 21 个工具表达的操作
+    （rpm 安装、kubeadm init、mysql 导库、tar 解压、sed 改配置等）。
+
+    安全边界（与其它写工具同级）：
+    - script_path 必须是绝对路径且以 settings.script_dirs 白名单内某个目录开头
+    - script_path 禁止 `..`；必须以 .sh 结尾
+    - 进入默认审批名单 APPROVAL_REQUIRED_TOOLS（exec_remote_script）
+    - 密码/令牌禁止出现在 args：脚本自己从 customer.env 读取，日志打码 args
+    执行：cd {script_dir} && bash {script_path} {args}，超时用 settings.script_exec_timeout。
+    返回 stdout/stderr 截断到 8000 字符（tail 侧，保留安装结果与报错）。
+    """
+
+    @tool
+    async def exec_remote_script(script_path: str, args: str | None = None) -> str:
+        """在目标服务器上执行白名单目录内的安装/编排脚本。触发人工审批。
+
+        Args:
+            script_path: 脚本绝对路径（必须以 SCRIPTS_DIRS 白名单内目录开头，且以 .sh 结尾）
+            args: 可选附加参数（原样传给脚本；禁止传密码，密码由脚本从 customer.env 自行读取）
+        """
+        tool_name = "exec_remote_script"
+        start = time.perf_counter()
+        logger.info(
+            "tool={} | args=script_path={} args={}",
+            tool_name,
+            script_path,
+            _mask(args) if args else "<none>",
+        )
+
+        # 参数校验：非空 / 绝对路径 / 无 .. / .sh 结尾
+        if not script_path or not script_path.strip():
+            elapsed = _elapsed_ms(start)
+            logger.error(
+                "tool={} | error=empty_script_path | elapsed={}ms", tool_name, elapsed
+            )
+            return _err("validation_error", "script_path 不能为空")
+
+        script_path = script_path.strip()
+        if not script_path.startswith("/"):
+            elapsed = _elapsed_ms(start)
+            logger.error(
+                "tool={} | error=not_absolute | elapsed={}ms", tool_name, elapsed
+            )
+            return _err("validation_error", "script_path 必须是绝对路径", script_path=script_path)
+
+        if ".." in script_path.split("/"):
+            elapsed = _elapsed_ms(start)
+            logger.error("tool={} | error=dotdot | elapsed={}ms", tool_name, elapsed)
+            return _err("validation_error", "script_path 禁止包含 ..", script_path=script_path)
+
+        if not script_path.endswith(".sh"):
+            elapsed = _elapsed_ms(start)
+            logger.error(
+                "tool={} | error=not_shell_script | elapsed={}ms", tool_name, elapsed
+            )
+            return _err("validation_error", "script_path 必须是 .sh 脚本", script_path=script_path)
+
+        # 白名单校验：目录前缀命中
+        allowed = settings.script_dirs
+        if not allowed:
+            elapsed = _elapsed_ms(start)
+            logger.error(
+                "tool={} | error=empty_whitelist | elapsed={}ms", tool_name, elapsed
+            )
+            return _err(
+                "validation_error",
+                "SCRIPTS_DIRS 白名单为空，拒绝执行任何脚本（请在 .env 配置）",
+            )
+        if not any(script_path.startswith(prefix.rstrip("/") + "/") for prefix in allowed):
+            elapsed = _elapsed_ms(start)
+            logger.error(
+                "tool={} | error=script_not_in_whitelist | whitelist={} | elapsed={}ms",
+                tool_name,
+                allowed,
+                elapsed,
+            )
+            return _err(
+                "validation_error",
+                f"script_path 不在脚本目录白名单内，仅允许: {allowed}",
+                script_path=script_path,
+            )
+
+        script_dir = script_path.rsplit("/", 1)[0]
+        q = shlex.quote(script_path)
+        cmd = f"cd {shlex.quote(script_dir)} && bash {q}"
+        if args and args.strip():
+            cmd += " " + shlex.quote(args.strip())
+        cmd += " 2>&1"
+
+        logger.info(
+            "tool={} | host={} | cmd={} | timeout={}s",
+            tool_name,
+            settings.server_host,
+            _cmd_summary(cmd),
+            settings.script_exec_timeout,
+        )
+        try:
+            exit_code, out, err = await _run_ssh(
+                settings, cmd, timeout=settings.script_exec_timeout
+            )
+            truncated = False
+            if len(out) > 8000:
+                out = out[-8000:]
+                truncated = True
+
+            if exit_code != 0:
+                elapsed = _elapsed_ms(start)
+                logger.error(
+                    "tool={} | error=script_failed exit={} | elapsed={}ms",
+                    tool_name,
+                    exit_code,
+                    elapsed,
+                )
+                return _err(
+                    "command_failed",
+                    f"脚本执行失败（exit={exit_code}），请查看 stdout/stderr 定位原因",
+                    script=script_path,
+                    exit_code=exit_code,
+                    stdout=out,
+                    stderr=err,
+                    truncated=truncated,
+                )
+
+            elapsed = _elapsed_ms(start)
+            logger.info("tool={} | ok | elapsed={}ms", tool_name, elapsed)
+            return _ok(
+                script=script_path,
+                exit_code=exit_code,
+                stdout=out,
+                stderr=err,
+                truncated=truncated,
+            )
+        except Exception as e:
+            elapsed = _elapsed_ms(start)
+            logger.error(
+                "tool={} | error={} | elapsed={}ms",
+                tool_name,
+                str(e),
+                elapsed,
+                exc_info=True,
+            )
+            return _err("ssh_error", f"SSH 执行失败: {e}")
+
+    return exec_remote_script
+
+
 def build_get_container_logs_tool(settings: Settings):
     """构建 get_container_logs 工具（只读诊断，不入审批名单）。
 
@@ -2539,7 +2690,7 @@ def build_rollback_deployment_tool(settings: Settings, store: DeploymentStateSto
 
 
 def build_tools(settings: Settings) -> list:
-    """构建 20 个业务工具列表（9 个需审批的写操作 + 11 个只读/巡检/文件/状态查询）。"""
+    """构建 21 个业务工具列表（10 个需审批的写操作 + 11 个只读/巡检/文件/状态查询）。"""
     return [
         build_git_pull_code_tool(settings),
         build_docker_image_tool(settings),
@@ -2561,6 +2712,7 @@ def build_tools(settings: Settings) -> list:
         build_get_deployment_status_tool(settings),
         build_list_deployment_history_tool(settings),
         build_rollback_deployment_tool(settings),
+        build_exec_remote_script_tool(settings),
     ]
 
 
@@ -2586,4 +2738,5 @@ __all__ = [
     "build_get_deployment_status_tool",
     "build_list_deployment_history_tool",
     "build_rollback_deployment_tool",
+    "build_exec_remote_script_tool",
 ]

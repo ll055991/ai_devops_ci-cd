@@ -73,6 +73,14 @@ class Settings(BaseSettings):
     # workspace 白名单（多值，逗号分隔），git_pull_code 的 workspace 必须在此列表内
     # workspace 不支持对话中增删，只走 .env
     workspaces_raw: str = Field(default="/data/deploy/workspace", validation_alias="WORKSPACES")
+    # 远程脚本目录白名单（多值，逗号分隔），exec_remote_script 的 script_path 必须以其中某个目录开头
+    # 用于部署编排：目标机上的分阶段安装脚本（如 BaaS 离线包 /data_2/offline-bundle/scripts）
+    script_dirs_raw: str = Field(
+        default="/data_2/offline-bundle/scripts",
+        validation_alias="SCRIPTS_DIRS",
+    )
+    # 远程脚本执行超时（秒）：安装类脚本可能运行数分钟（docker load / kubeadm init / docker save）
+    script_exec_timeout: int = Field(default=1800, validation_alias="SCRIPT_EXEC_TIMEOUT")
     # 白名单持久化 JSON 文件路径（容器/镜像白名单的运行时存储）
     # 空值时用默认路径 backend/whitelist.json；测试时传 tmp 路径隔离
     whitelist_file: str = Field(default="", validation_alias="WHITELIST_FILE")
@@ -96,10 +104,10 @@ class Settings(BaseSettings):
     docker_host: str | None = Field(default=None, validation_alias="DOCKER_HOST")
 
     # --- 必须人工审批的工具 ---
-    # 默认 stop/start container + rollback 需要审批，对应需求文档第七章与改造方案阶段 2
-    # 注意：若 .env 配置了 APPROVAL_REQUIRED_TOOLS，以 .env 为准（需自行包含 rollback_deployment）
+    # 默认 stop/start container + rollback + 远程脚本执行需要审批，对应需求文档第七章与改造方案阶段 2
+    # 注意：若 .env 配置了 APPROVAL_REQUIRED_TOOLS，以 .env 为准（需自行包含 rollback_deployment / exec_remote_script）
     approval_required_tools_raw: str = Field(
-        default="stop_container,start_container,rollback_deployment",
+        default="stop_container,start_container,rollback_deployment,exec_remote_script",
         validation_alias="APPROVAL_REQUIRED_TOOLS",
     )
 
@@ -210,6 +218,17 @@ class Settings(BaseSettings):
         if not self.workspaces_raw.strip():
             return []
         return [w.strip() for w in self.workspaces_raw.split(",") if w.strip()]
+
+    @property
+    def script_dirs(self) -> list[str]:
+        """远程脚本目录白名单：逗号分隔解析成 list。
+
+        exec_remote_script 的 script_path 必须以其中某个目录开头（目录前缀匹配）。
+        日常扩展只需改 .env 的 SCRIPTS_DIRS 后重启，无需动代码。
+        """
+        if not self.script_dirs_raw.strip():
+            return []
+        return [d.strip().rstrip("/") for d in self.script_dirs_raw.split(",") if d.strip()]
 
     def approval_required_tools(self) -> list[str]:
         """解析 APPROVAL_REQUIRED_TOOLS，支持逗号分隔或 JSON 数组。"""

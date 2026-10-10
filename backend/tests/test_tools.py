@@ -613,10 +613,10 @@ async def test_check_service_health_unhealthy(settings, monkeypatch):
     assert data["http_status"] == "500"
 
 
-async def test_build_tools_returns_20(settings):
-    """build_tools 返回 20 个工具（9 个需审批写操作 + 11 个只读/巡检/文件/状态查询）。"""
+async def test_build_tools_returns_21(settings):
+    """build_tools 返回 21 个工具（10 个需审批写操作 + 11 个只读/巡检/文件/状态查询）。"""
     tool_list = tools.build_tools(settings)
-    assert len(tool_list) == 20
+    assert len(tool_list) == 21
     names = [t.name for t in tool_list]
     assert "git_pull_code" in names
     assert "build_docker_image" in names
@@ -631,6 +631,7 @@ async def test_build_tools_returns_20(settings):
     assert "get_deployment_status" in names
     assert "list_deployment_history" in names
     assert "rollback_deployment" in names
+    assert "exec_remote_script" in names
 
 
 # ==================== 新增只读工具：list_containers / list_images / check_dockerfile ====================
