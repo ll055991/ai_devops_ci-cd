@@ -140,7 +140,7 @@ async def test_audit_records_risk_block_as_blocked(settings, audit_store, dep_st
         lambda request: risk.awrap_tool_call(request, _handler),
     )
 
-    assert json.loads(result)["error_type"] == "risk_blocked"
+    assert json.loads(result.content)["error_type"] == "risk_blocked"
     rows = await audit_store.list()
     assert rows[0]["status"] == "blocked"
     assert rows[0]["risk_level"] == "high"
@@ -164,7 +164,7 @@ async def test_risk_blocks_virtual_fs_path_outside_mount(settings, dep_store):
         handler,
     )
 
-    data = json.loads(result)
+    data = json.loads(result.content)
     assert data["error_type"] == "virtual_path_denied"
     assert "read_workspace_file" in data["message"]
     assert called["v"] is False
@@ -184,7 +184,7 @@ async def test_risk_blocks_relative_virtual_fs_path(settings, dep_store):
         handler,
     )
 
-    data = json.loads(result)
+    data = json.loads(result.content)
     assert data["error_type"] == "virtual_path_denied"
     assert called["v"] is False
 
@@ -197,8 +197,8 @@ async def test_risk_escalates_repeated_virtual_path_denial(settings, dep_store):
         return _tool_message({"success": True})
 
     request = _make_request("read_file", {"file_path": "/data/deploy/workspace/Dockerfile"})
-    first = json.loads(await risk.awrap_tool_call(request, handler))
-    second = json.loads(await risk.awrap_tool_call(request, handler))
+    first = json.loads((await risk.awrap_tool_call(request, handler)).content)
+    second = json.loads((await risk.awrap_tool_call(request, handler)).content)
 
     assert first["error_type"] == "virtual_path_denied"
     assert second["error_type"] == "repeated_failure"

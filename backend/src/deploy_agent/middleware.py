@@ -837,12 +837,22 @@ class RiskControlMiddleware(AgentMiddleware):
                 path_block["path"],
                 denied,
             )
-            return json.dumps(path_block, ensure_ascii=False)
+            return ToolMessage(
+                content=json.dumps(path_block, ensure_ascii=False),
+                name=tool_name,
+                tool_call_id=request.tool_call["id"],
+                status="error",
+            )
 
         # 前置校验：拒绝时直接返回错误 JSON，不执行工具
         block = await self._precheck(tool_name, args)
         if block is not None:
-            return json.dumps(block, ensure_ascii=False)
+            return ToolMessage(
+                content=json.dumps(block, ensure_ascii=False),
+                name=tool_name,
+                tool_call_id=request.tool_call["id"],
+                status="error",
+            )
 
         # 并发部署锁：同键锁被占用 → 拒绝（不排队等待）
         lock_key = self._lock_key(tool_name, args)
@@ -855,17 +865,22 @@ class RiskControlMiddleware(AgentMiddleware):
                     tool_name,
                     lock_key,
                 )
-                return json.dumps(
-                    {
-                        "success": False,
-                        "error_type": "concurrency_conflict",
-                        "message": (
-                            f"目标（{lock_key}）正在被其他会话部署操作占用，"
-                            "请等待完成后再试"
-                        ),
-                        "lock_key": lock_key,
-                    },
-                    ensure_ascii=False,
+                return ToolMessage(
+                    content=json.dumps(
+                        {
+                            "success": False,
+                            "error_type": "concurrency_conflict",
+                            "message": (
+                                f"目标（{lock_key}）正在被其他会话部署操作占用，"
+                                "请等待完成后再试"
+                            ),
+                            "lock_key": lock_key,
+                        },
+                        ensure_ascii=False,
+                    ),
+                    name=tool_name,
+                    tool_call_id=request.tool_call["id"],
+                    status="error",
                 )
             await lock.acquire()
             try:
