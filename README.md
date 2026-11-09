@@ -226,3 +226,4 @@ npm run lint
 - [docs/adr/](docs/adr/) — 架构决策记录（优化路线、evals、成本可观测、多 SubAgent 拆分）
 - [docs/词汇表.md](docs/词汇表.md) — 术语表；[docs/路线图.md](docs/路线图.md) — 路线图
 - [Trae任务模板-含日志功能.md](Trae任务模板-含日志功能.md) — 任务拆分模板
+tested by superagent
